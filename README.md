@@ -3,8 +3,11 @@ A web based file manager for [Raspberry Pi Pico](https://www.raspberrypi.com/pro
 
 **WORK IN PROGRESS!** Use with caution!
 
-<img width="600" alt="Shell" src="https://github.com/user-attachments/assets/ac8d436a-34ec-4ac1-a140-e1633bb33282" />
-<img width="600" alt="File browser" src="https://github.com/user-attachments/assets/e4e445a1-1bb0-4448-aa26-288791deb5ea" />
+<img width="600" alt="Shell" src="https://github.com/user-attachments/assets/3d465ff8-c360-4b76-affd-e51c6f1dc212" />
+
+
+<img width="600" alt="File browser" src="https://github.com/user-attachments/assets/0007d720-cd6d-407a-b580-ab7f1d8bb13c" />
+
 
 ### How to use?
 
