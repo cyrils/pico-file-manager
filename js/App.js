@@ -3,8 +3,14 @@ class App {
     constructor() {
         this.pico = new PicoSerial(this.onConnected.bind(this), this.onDisconnected.bind(this), this.log)
         this.connected = false
-        this.running = true
-        this.supportedFiles = ['py', 'json', 'txt', 'md', 'ini', 'c']
+        this.running = null
+        this.editableExtensions = new Set([
+            'py', 'json', 'txt', 'md',
+            'ini', 'cfg', 'conf', 'toml', 'yaml', 'yml',
+            'csv', 'tsv', 'log',
+            'html', 'css', 'js', 'xml',
+            'c', 'h', 'cpp', 'hpp', 'pio'
+        ])
         this.errorMessages = { 39: 'Directory not empty!', 21: 'Directory exists!' }
         this.ignorePatterns = [
             ".git",
@@ -19,17 +25,46 @@ class App {
     }
 
     init() {
-        this.__onClick("#search", async () => await this.pico.connect())
+        this.__onClick("#search", async () => {
+            if (!navigator.serial) {
+                await this.showDialog({
+                    title: 'Web Serial unavailable',
+                    message: 'Open Pico File Manager in a browser that supports Web Serial, such as Chrome.'
+                })
+                return
+            }
+            const connect = document.querySelector("#search")
+            connect.disabled = true
+            try {
+                await this.pico.connect()
+            } catch (error) {
+                if (error.name !== 'NotFoundError') {
+                    document.querySelector("#result").textContent = 'Could not connect to the device.'
+                }
+            } finally {
+                connect.disabled = false
+            }
+        })
+        this.__onClick('#dialog-cancel', () => document.querySelector('#app-dialog').close('cancel'))
         this.__onClick("#disconnect", async () => await this.pico.disconnect())
         this.__onClick("#reboot", () => {
-            this.running = true
+            this.replCheck = null
+            this.setRunning(true)
             this.pico.rebootDevice()
-            document.querySelector("#tab-files").classList.add('disabled')
         })
-        this.__onClick("#stop", () => {
-            this.running = false
-            this.pico.stopDevice()
-            document.querySelector("#tab-files").classList.remove('disabled')
+        this.__onClick("#stop", async () => {
+            if (this.running === false) return
+            const previousState = this.running
+            const port = this.pico.picoPort
+            this.setRunning(false)
+            try {
+                await this.pico.stopDevice()
+            } catch (error) {
+                if (this.connected && this.pico.picoPort === port) {
+                    this.setRunning(previousState)
+                    document.querySelector('#result').textContent = 'Could not stop the program.'
+                }
+            }
         })
         this.__onClick("#tab-shell", this.showShell.bind(this))
         this.__onClick("#tab-files", this.showFilesTab.bind(this))
@@ -73,30 +108,44 @@ class App {
         if (fileUploadInput) {
             fileUploadInput.addEventListener("change", this.uploadFiles.bind(this))
         }
+        this.updateDeviceStatus()
         window.addEventListener('beforeunload', async () => await this.pico.stop())
     }
 
-    onConnected() {
+    onConnected(deviceDescription = 'USB serial device', deviceName = deviceDescription) {
         this.connected = true
-        this.running = true
+        document.querySelector('#device-name').textContent = deviceName
+        this.setRunning(null)
+        this.updateDeviceStatus()
+        const browser = document.querySelector('#browser')
+        browser.dataset.dir = '/'
+        browser.replaceChildren()
+        document.querySelector('#result').textContent = ''
         this.clearLog()
-        this.log(`[Pico connected]\n\n`)
+        this.log(`[Connected to ${deviceDescription}]\n\n`)
         this.__hide('#search')
         this.__show('[data-connected]')
         this.showShell()
+        this.checkRunningState()
     }
 
     onDisconnected() {
         this.connected = false
-        this.log(`\n[Pico disconnected]\n\n`)
+        document.querySelector('#device-name').textContent = 'No device'
+        this.replCheck = null
+        this.directoryRequest = null
+        this.setDirectoryBusy(false)
+        const dialog = document.querySelector('#app-dialog')
+        if (dialog.open) dialog.close('cancel')
+        this.updateDeviceStatus()
         this.__hide('[data-connected]')
         this.__show('#search')
         this.showShell()
-        document.querySelector('#tab-files').classList.add('disabled')
+        this.log(`\n[Pico disconnected]\n\n`)
     }
 
     onFileSaved(message) {
-        document.querySelector("#result").textContent = message ? "Saved!" : "Save failed!"
+        document.querySelector("#result").textContent = message === "OK" ? "Saved!" : "Save failed!"
         setTimeout(() => { document.querySelector("#result").textContent = '' }, 3000)
     }
 
@@ -116,38 +165,148 @@ class App {
         document.querySelector('#shell').value = '';
     }
 
+    updateDeviceStatus() {
+        const status = document.querySelector('#device-status')
+        status.textContent = this.connected ? 'Connected' : 'Disconnected'
+        status.parentElement.classList.toggle('connected', this.connected)
+        document.querySelector('#shell-panel').classList.toggle('connected-terminal', this.connected)
+        this.updateRunningIndicator()
+        document.querySelector('#tab-files').disabled = !this.connected
+    }
+
+    updateRunningIndicator() {
+        document.querySelector('#shell-panel').classList.toggle('running-terminal', this.connected && this.running === true)
+    }
+
+    checkRunningState() {
+        if (!this.replCheck) {
+            const check = this.pico.checkReplReady().then(replReady => {
+                if (this.replCheck !== check) return
+                this.replCheck = null
+                if (this.running === null) this.setRunning(!replReady)
+            })
+            this.replCheck = check
+        }
+        return this.replCheck
+    }
+
+    setRunning(running) {
+        this.running = running
+        this.updateRunningIndicator()
+        const stop = document.querySelector('#stop')
+        stop.disabled = running === false
+        stop.title = !stop.disabled ? 'Interrupt the program running on the Pico' : 'The Pico is stopped'
+    }
+
+    setView(showFiles) {
+        const shellTab = document.querySelector('#tab-shell')
+        const filesTab = document.querySelector('#tab-files')
+        shellTab.classList.toggle('active', !showFiles)
+        filesTab.classList.toggle('active', showFiles)
+        shellTab.setAttribute('aria-pressed', !showFiles)
+        filesTab.setAttribute('aria-pressed', showFiles)
+    }
+
     showShell() {
-        this.__hide(['#save', '#files'])
-        this.__show('#shell')
+        this.__hide('#files')
+        this.__show('#shell-panel')
         if (this.connected) {
             this.__show(['#reboot', '#stop'])
         }
-        document.querySelector('#tab-shell').classList.add('active')
-        document.querySelector('#tab-files').classList.remove('active')
+        this.setView(false)
     }
 
-    showFilesTab() {
-        if (!this.connected) return alert('Please connect to Pico!')
-        if (this.running) {
-            if (window.confirm('Stop Pico to browse files?')) {
-                this.running = false
-                document.querySelector("#tab-files").classList.remove('disabled')
-                this.pico.stopDevice()
-                this.__show('#files')
-                this.__hide(['#shell', '#reboot', '#stop', '#save'])
-                document.querySelector('#tab-shell').classList.remove('active')
-                document.querySelector('#tab-files').classList.add('active')
-                setTimeout(() => {
-                    this.pico.listFiles(document.querySelector('#browser').dataset.dir, this.renderFiles.bind(this))
-                }, 300)
+    async showFilesTab() {
+        const filesTab = document.querySelector('#tab-files')
+        if (!this.connected || filesTab.disabled) return
+
+        if (this.running !== false) {
+            const port = this.pico.picoPort
+            filesTab.disabled = true
+            try {
+                if (this.running === null) {
+                    await this.checkRunningState()
+                    if (!this.connected || this.pico.picoPort !== port || this.running === null) return
+                }
+
+                if (this.running) {
+                    const confirmed = await this.showDialog({
+                        title: 'Stop the program?',
+                        message: 'The Pico must be idle before you can browse files.',
+                        action: 'Stop program',
+                        cancel: true
+                    })
+                    if (!confirmed || !this.connected || this.pico.picoPort !== port) return
+                    try {
+                        await this.pico.stopDevice()
+                    } catch (error) {
+                        if (this.connected && this.pico.picoPort === port) {
+                            document.querySelector('#result').textContent = 'Could not stop the program.'
+                        }
+                        return
+                    }
+                    if (!this.connected || this.pico.picoPort !== port) return
+                    this.setRunning(false)
+                    await new Promise(resolve => setTimeout(resolve, 300))
+                    if (!this.connected || this.pico.picoPort !== port || this.running) return
+                }
+            } finally {
+                if (this.pico.picoPort === port) filesTab.disabled = !this.connected
             }
-            return
         }
+
         this.__show('#files')
-        this.__hide(['#shell', '#reboot', '#stop', '#save'])
-        this.pico.listFiles(document.querySelector('#browser').dataset.dir, this.renderFiles.bind(this))
-        document.querySelector('#tab-shell').classList.remove('active')
-        document.querySelector('#tab-files').classList.add('active')
+        this.__hide(['#shell-panel', '#reboot', '#stop'])
+        this.setView(true)
+        this.loadDirectory()
+    }
+
+    setDirectoryBusy(busy) {
+        const browser = document.querySelector('#browser')
+        browser.setAttribute('aria-busy', busy)
+        browser.inert = busy
+        document.querySelector('#folder-toolbar').inert = busy
+        document.querySelector('.editor').inert = busy
+    }
+
+    loadDirectory(dir = document.querySelector('#browser').dataset.dir) {
+        if (this.directoryRequest) return
+        const browser = document.querySelector('#browser')
+        const hasListing = browser.firstElementChild !== null
+        if (!hasListing) {
+            browser.appendChild(this.__createNode('p', 'browser-message', 'Loading files…'))
+        }
+
+        const finish = response => {
+            if (this.directoryRequest !== finish) return
+            this.directoryRequest = null
+            this.setDirectoryBusy(false)
+            if (response === false || (typeof response === 'string' && response.includes('OSError:'))) {
+                const message = 'Could not load this folder.'
+                if (hasListing) document.querySelector('#result').textContent = message
+                else browser.firstElementChild.textContent = message
+                return
+            }
+
+            browser.dataset.dir = dir
+            const currentPath = document.querySelector('#current-path')
+            currentPath.textContent = dir
+            currentPath.title = dir
+
+            const editor = document.querySelector('#file-content')
+            editor.value = ''
+            delete editor.dataset.file
+            const editorTitle = document.querySelector('#editor-title')
+            editorTitle.textContent = 'Editor'
+            editorTitle.removeAttribute('title')
+            this.__hide(['#save', '#file-content'])
+            this.__show('#editor-empty')
+            this.renderFiles(response)
+        }
+
+        this.directoryRequest = finish
+        this.setDirectoryBusy(true)
+        Promise.resolve(this.pico.listFiles(dir, finish)).catch(() => finish(false))
     }
 
     asyncShowFilesTab(output) {
@@ -160,104 +319,175 @@ class App {
 
     throwError(output) {
         const match = output.match(/OSError:.* (\d+)/)
-        var message = 'Unknown error occured!'
+        let message = 'An unknown device error occurred.'
         if (match && match[1]) {
             message = this.errorMessages[parseInt(match[1])] || message
         }
-        alert('Error: ' + message)
+        this.showDialog({title: 'Device error', message})
     }
 
     renderFiles(response) {
-        const files = response == true ? [] : response.split('\n')
-        const fileBrowser = document.querySelector('#browser')
-        const currentDir = fileBrowser.dataset.dir
-
-        fileBrowser.innerHTML = ''
-        if (currentDir.split('/').length > 2) files.unshift('..|True|0')
+        const browser = document.querySelector('#browser')
+        const listing = document.createDocumentFragment()
+        const currentDir = browser.dataset.dir
+        const files = typeof response === 'string' ? response.split('\n').filter(Boolean) : []
+        if (currentDir !== '/') files.unshift('..|True|0')
+        if (files.length === 0) {
+            listing.appendChild(this.__createNode('p', 'browser-message', 'This folder is empty.'))
+        }
 
         files.forEach(file => {
-            const [name, isDir, size] = file.split('|')
-            const fileLink = this.__createNode("a", 'file')
-            fileLink.innerHTML = (isDir == 'True' ? '&#128193; ' : '&#128221; ') + name
-            if (isDir == 'True') {
-                fileLink.onclick = () => {
-                    if (name == '..') {
-                        const pathComponents = fileBrowser.dataset.dir.split('/')
-                        pathComponents.pop()
-                        pathComponents.pop()
-                        fileBrowser.dataset.dir = pathComponents.join('/') + '/'
-                    } else {
-                        fileBrowser.dataset.dir = fileBrowser.dataset.dir + name + '/'
-                    }
-                    this.pico.listFiles(fileBrowser.dataset.dir, this.renderFiles.bind(this))
+            const [name, isDir] = file.split('|')
+            const isFolder = isDir === 'True'
+            const isParent = name === '..'
+            const label = isParent ? 'Parent folder' : name
+            const entry = listing.appendChild(this.__createNode('div', 'file-entry'))
+            const fileButton = entry.appendChild(this.__createNode('button', 'file', null, label))
+            const iconClass = isParent ? 'parent-symbol' : isFolder ? 'folder-symbol' : 'file-symbol'
+            const icon = this.__createNode('span', iconClass, isParent ? '↑' : null)
+            icon.setAttribute('aria-hidden', 'true')
+            fileButton.append(icon, this.__createNode('span', 'file-name', label))
+
+            if (isFolder) {
+                fileButton.onclick = () => {
+                    const dir = isParent
+                        ? currentDir.slice(0, currentDir.lastIndexOf('/', currentDir.length - 2) + 1)
+                        : currentDir + name + '/'
+                    this.loadDirectory(dir)
                 }
             } else {
-                const filePath = fileBrowser.dataset.dir + name
-                const nameParts = name.split('.')
-                if (nameParts.length > 1 && this.supportedFiles.indexOf(nameParts.pop().toLowerCase()) >= 0) {
-                    fileLink.onclick = this.pico.readFile.bind(this.pico, filePath, this.renderFileContent.bind(this, filePath, fileLink))
+                const filePath = currentDir + name
+                const normalizedName = name.toLowerCase()
+                const extensionStart = normalizedName.lastIndexOf('.')
+                if (normalizedName === 'makefile' ||
+                    (extensionStart >= 0 && this.editableExtensions.has(normalizedName.slice(extensionStart + 1)))) {
+                    fileButton.onclick = () => {
+                        this.pico.readFile(filePath, content => {
+                            if (!fileButton.isConnected || !this.connected) return
+                            this.renderFileContent(filePath, fileButton, content)
+                        })
+                    }
                 } else {
-                    fileLink.classList.add('disabled')
+                    fileButton.disabled = true
+                    fileButton.title = name + ' (no text preview)'
                 }
             }
-            const fileEntry = fileBrowser.appendChild(this.__createNode('div', 'file-entry'))
-            fileEntry.appendChild(fileLink)
-            fileEntry.appendChild(this.__createNode('span', 'file-action', '&#9999;&#65039;', "Rename", this.renameFile.bind(this, name)))
-            fileEntry.appendChild(this.__createNode('span', 'file-action', '&#10060;', "Delete", this.deleteFile.bind(this, name)))
+
+            if (!isParent) {
+                const rename = this.__createNode('button', 'file-action', '✎', 'Rename ' + name, this.renameFile.bind(this, name))
+                const remove = this.__createNode('button', 'file-action', '×', 'Delete ' + name, this.deleteFile.bind(this, name))
+                rename.setAttribute('aria-label', rename.title)
+                remove.setAttribute('aria-label', remove.title)
+                remove.classList.add('delete')
+                entry.append(rename, remove)
+            }
         })
-        document.querySelector('#file-content').value = ''
-        document.querySelector('#file-content').placeholder = ''
-        this.__hide('#save')
+        browser.replaceChildren(listing)
+        browser.scrollTop = 0
     }
 
     renderFileContent(file, fileNode, content) {
-        document.querySelectorAll('.file').forEach(node => {
+        document.querySelectorAll('.file.selected').forEach(node => {
             node.classList.remove('selected')
+            node.removeAttribute('aria-current')
         })
-        fileNode && fileNode.classList.add('selected')
-        this.__show('#save')
-        document.querySelector('#file-content').dataset.file = file
-        if (content == true) {
-            document.querySelector('#file-content').placeholder = '(empty)'
-        } else {
-            document.querySelector('#file-content').value = content
+        fileNode.classList.add('selected')
+        fileNode.setAttribute('aria-current', 'true')
+        const editorTitle = document.querySelector('#editor-title')
+        editorTitle.textContent = file.split('/').pop()
+        editorTitle.title = file
+        const editor = document.querySelector('#file-content')
+        editor.dataset.file = file
+        editor.value = content === true ? '' : content
+        editor.placeholder = '(empty)'
+        this.__hide('#editor-empty')
+        this.__show(['#file-content', '#save'])
+    }
+
+    showDialog({title, message, label, value = '', action = 'OK', cancel = false, danger = false}) {
+        const dialog = document.querySelector('#app-dialog')
+        if (dialog.open) return Promise.resolve(null)
+
+        const messageNode = document.querySelector('#dialog-message')
+        const input = document.querySelector('#dialog-input')
+        const cancelButton = document.querySelector('#dialog-cancel')
+        const confirmButton = document.querySelector('#dialog-confirm')
+        document.querySelector('#dialog-title').textContent = title
+        messageNode.textContent = message || ''
+        messageNode.hidden = !message
+        if (message) dialog.setAttribute('aria-describedby', messageNode.id)
+        else dialog.removeAttribute('aria-describedby')
+
+        document.querySelector('#dialog-label').textContent = label || ''
+        document.querySelector('#dialog-field').hidden = !label
+        input.disabled = !label
+        input.required = Boolean(label)
+        input.value = value
+        cancelButton.hidden = !cancel
+        confirmButton.textContent = action
+        confirmButton.classList.toggle('danger', danger)
+
+        dialog.returnValue = ''
+        return new Promise(resolve => {
+            dialog.addEventListener('close', () => {
+                resolve(dialog.returnValue === 'confirm' ? (label ? input.value : true) : null)
+            }, {once: true})
+            dialog.showModal()
+            if (label) {
+                input.focus()
+                input.select()
+            } else {
+                (cancel ? cancelButton : confirmButton).focus()
+            }
+        })
+    }
+
+    async createFile() {
+        const port = this.pico.picoPort
+        const name = await this.showDialog({title: 'New file', label: 'File name', action: 'Create file', cancel: true})
+        if (!name || !this.connected || this.pico.picoPort !== port) return
+        const path = document.querySelector('#browser').dataset.dir + name
+        this.pico.createFile(path, this.asyncShowFilesTab.bind(this))
+    }
+
+    async createFolder() {
+        const port = this.pico.picoPort
+        const name = await this.showDialog({title: 'New folder', label: 'Folder name', action: 'Create folder', cancel: true})
+        if (!name || !this.connected || this.pico.picoPort !== port) return
+        const path = document.querySelector('#browser').dataset.dir + name
+        this.pico.createFolder(path, this.asyncShowFilesTab.bind(this))
+    }
+
+    async deleteFile(name) {
+        const port = this.pico.picoPort
+        const path = document.querySelector('#browser').dataset.dir + name
+        const confirmed = await this.showDialog({
+            title: 'Delete item?',
+            message: 'Delete “' + name + '” from the Pico?',
+            action: 'Delete',
+            cancel: true,
+            danger: true
+        })
+        if (confirmed && this.connected && this.pico.picoPort === port) {
+            this.pico.deleteFile(path, this.asyncShowFilesTab.bind(this))
         }
     }
 
-    createFile() {
-        const newFile = window.prompt("Name of new file:")
-        if (!newFile) return
-        const filePath = document.querySelector('#browser').dataset.dir + newFile
-        this.pico.createFile(filePath, this.asyncShowFilesTab.bind(this))
-    }
-
-    createFolder() {
-        const newFile = window.prompt("Name of new folder:")
-        if (!newFile) return
-        const filePath = document.querySelector('#browser').dataset.dir + newFile
-        this.pico.createFolder(filePath, this.asyncShowFilesTab.bind(this))
-    }
-
-    deleteFile(name) {
-        if (window.confirm("Delete file '" + name + "'?")) {
-            const filePath = document.querySelector('#browser').dataset.dir + name
-            this.pico.deleteFile(filePath, this.asyncShowFilesTab.bind(this))
+    async renameFile(name) {
+        const port = this.pico.picoPort
+        const dir = document.querySelector('#browser').dataset.dir
+        const newName = await this.showDialog({
+            title: 'Rename item', label: 'New name', value: name, action: 'Rename', cancel: true
+        })
+        if (newName && !newName.includes('/') && this.connected && this.pico.picoPort === port) {
+            this.pico.renameFile(dir + name, dir + newName, this.asyncShowFilesTab.bind(this))
         }
     }
 
-    renameFile(name) {
-        const newName = window.prompt("Rename file", name)
-        if (newName != '' && !newName.includes('/')) {
-            const srcPath = document.querySelector('#browser').dataset.dir + name
-            const targetPath = document.querySelector('#browser').dataset.dir + newName
-            this.pico.renameFile(srcPath, targetPath, this.asyncShowFilesTab.bind(this))
-        }
-    }
-
-    __createNode(tag, className, innerHTML = null, title = null, onclick = null) {
+    __createNode(tag, className, text = null, title = null, onclick = null) {
         const newNode = document.createElement(tag)
         newNode.classList.add(className)
-        innerHTML && (newNode.innerHTML = innerHTML)
+        if (text !== null) newNode.textContent = text
         title && (newNode.title = title)
         newNode.onclick = onclick
         return newNode
@@ -369,16 +599,26 @@ class App {
         } catch (error) {
             console.error('Upload error:', error);
             resultSpan.textContent = `Upload failed: ${error}`;
-            alert(`Error during upload: ${error}`);
+            this.showDialog({title: 'Upload failed', message: String(error)});
         } finally {
             event.target.value = '';
         }
     }
 
-    deleteAll() {
+    async deleteAll() {
+        const port = this.pico.picoPort
         const currentDir = document.querySelector('#browser').dataset.dir
-        if (window.confirm("Delete all files inside '" + currentDir + "' recursively? This cannot be undone.")) {
+        const confirmed = await this.showDialog({
+            title: 'Delete everything in this folder?',
+            message: 'This permanently deletes all files and subfolders inside “' + currentDir + '”.',
+            action: 'Delete all',
+            cancel: true,
+            danger: true
+        })
+        if (confirmed && this.connected && this.pico.picoPort === port) {
             this.pico.deleteAllRecursive(currentDir, this.asyncShowFilesTab.bind(this))
         }
     }
 }
+
+window.addEventListener('DOMContentLoaded', () => new App().init())

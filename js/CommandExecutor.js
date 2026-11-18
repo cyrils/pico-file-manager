@@ -64,7 +64,7 @@ class CommandExecutor {
 
     execInterrupt(callback = null) {
         this.outputCallback = callback
-        this.pico.writeIntoPico(this.commands["Ctrl-C"])
+        return this.pico.writeIntoPico(this.commands["Ctrl-C"])
     }
 
     execReboot(callback = null) {
@@ -75,7 +75,7 @@ class CommandExecutor {
 
     execListDir(dir='/', callback) {
         this.outputCallback = callback
-        this.pico.writeIntoPico(
+        return this.pico.writeIntoPico(
             `
             ${this.commands["Ctrl-A"]}
             ${__cmdListDir(dir)}

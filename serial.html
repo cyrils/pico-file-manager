@@ -1,60 +1,109 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="theme-color" content=#0091D5 />
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f6f4">
   <link rel="stylesheet" href="serial.css">
   <title>Pico File Manager</title>
+  <script defer src="./js/PicoSerial.js"></script>
+  <script defer src="./js/CommandExecutor.js"></script>
+  <script defer src="./js/App.js"></script>
 </head>
-<div class="title">Pico File Manager</div>
-
-<div class="content">
-  <button id="tab-shell" class="tab active" data-target="#shell">Shell</button>
-  <button id="tab-files" class="tab disabled" data-target="#files">Files</button>
-  <textarea id="shell" class="tab-area">[Connect a device]</textarea>
-  <div id="files" class="tab-area files hidden">
-    <div id="left-pane">
-      <div id="browser" data-dir="/" class="browser"></div>
-      <div id="folder-toolbar" class="file-toolbar">
-        <select id="upload-menu">
-          <option value="" disabled selected>📤 Upload</option>
-          <option value="upload-files">📄 Upload files</option>
-          <option value="upload-folder">📁 Upload folder</option>
-        </select>
-        <select id="actions-menu">
-          <option value="" disabled selected>⚙️ Actions</option>
-          <option value="create-file">📝 New file</option>
-          <option value="create-folder">📁 New folder</option>
-          <option value="delete-all">❌ Delete all</option>
-        </select>
-        <input type="file" id="folder-upload" webkitdirectory directory multiple class="hidden">
-        <input type="file" id="file-upload" multiple class="hidden">
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">›_</span>
+        <span>Pico File Manager</span>
+      </div>
+      <div class="header-controls">
+        <span class="device-status" role="status"><span id="device-status">Disconnected</span></span>
+        <div class="device-controls" aria-label="Device controls">
+          <button id="search" class="primary" type="button">Connect device <span aria-hidden="true">↗</span></button>
+          <button id="stop" data-connected class="hidden" type="button"><span class="control-icon stop-icon" aria-hidden="true"></span>Stop program</button>
+          <button id="reboot" data-connected class="hidden" type="button"><span class="control-icon" aria-hidden="true">↻</span>Reboot</button>
+          <button id="disconnect" data-connected class="hidden" type="button"><span class="control-icon" aria-hidden="true">⏻</span>Disconnect</button>
+        </div>
       </div>
     </div>
-    <textarea id="file-content" class="file-content"></textarea>
-  </div>
-</div>
+  </header>
 
-<div class="section"> </div>
+  <main class="workspace">
+    <section class="panel" aria-label="Pico workspace">
+      <div class="panel-bar">
+        <nav class="views" aria-label="Workspace views">
+          <button id="tab-shell" class="tab active" aria-controls="shell-panel" aria-pressed="true" type="button">
+            <span class="terminal-symbol" aria-hidden="true">›_</span> Shell
+          </button>
+          <button id="tab-files" class="tab" aria-controls="files" aria-pressed="false" type="button" disabled>
+            <span class="folder-symbol" aria-hidden="true"></span> Files
+          </button>
+        </nav>
+        <span class="protocol"><span id="device-name">No device</span> <span class="protocol-divider" aria-hidden="true">/</span> USB serial</span>
+      </div>
 
-<div class="toolbar">
-  <button id="search">Search device</button>
-  <button id="disconnect" data-connected="true" class="hidden left">Disconnect</button>
-  <button id="reboot" data-connected="true" class="hidden right">🔄 Reboot</button>
-  <button id="stop" data-connected="true" class="hidden right">🛑 Stop</button>
-  <button id="save" data-connected="true" class="hidden right">💾 Save</button>
-  <span id="result" class="result"></span>
-</div>
+      <div id="shell-panel" class="shell-panel">
+        <div class="terminal-header">
+          <span class="terminal-indicator" aria-hidden="true"></span>
+          Serial output
+        </div>
+        <textarea id="shell" aria-label="Serial output" readonly spellcheck="false">Select “Connect device” to open a serial connection.</textarea>
+      </div>
 
-<script src="./js/PicoSerial.js"></script>
-<script src="./js/CommandExecutor.js"></script>
-<script src="./js/App.js"></script>
-<script>
-  window.addEventListener('DOMContentLoaded', async () => {
-    new App().init()
-  });
-</script>
+      <div id="files" class="files hidden">
+        <aside id="left-pane" aria-label="File browser">
+          <div class="pane-header">
+            <h2>Device files</h2>
+            <span id="current-path" class="path">/</span>
+          </div>
+          <div id="folder-toolbar" class="file-toolbar">
+            <select id="upload-menu" aria-label="Upload">
+              <option value="" disabled selected>Upload</option>
+              <option value="upload-files">Upload files</option>
+              <option value="upload-folder">Upload folder</option>
+            </select>
+            <select id="actions-menu" aria-label="Folder actions">
+              <option value="" disabled selected>Actions</option>
+              <option value="create-file">New file</option>
+              <option value="create-folder">New folder</option>
+              <option value="delete-all">Delete all</option>
+            </select>
+            <input type="file" id="folder-upload" webkitdirectory directory multiple class="hidden">
+            <input type="file" id="file-upload" multiple class="hidden">
+          </div>
+          <div id="browser" data-dir="/" class="browser" aria-busy="false"></div>
+        </aside>
+        <section class="editor" aria-label="File editor">
+          <div class="pane-header editor-header">
+            <h2 id="editor-title">Editor</h2>
+            <button id="save" class="primary hidden" type="button">Save file</button>
+          </div>
+          <div id="editor-empty" class="editor-empty">Select a text file to open it here.</div>
+          <textarea id="file-content" class="file-content hidden" aria-labelledby="editor-title" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
+        </section>
+      </div>
 
+      <footer class="panel-footer">
+        <span class="port-speed">115200 baud</span>
+        <span id="result" class="result" role="status"></span>
+        <small class="copyright">© 2025 Cyril Sebastian</small>
+      </footer>
+    </section>
+  </main>
+  <dialog id="app-dialog" class="app-dialog" aria-labelledby="dialog-title">
+    <form method="dialog">
+      <h2 id="dialog-title"></h2>
+      <p id="dialog-message" hidden></p>
+      <label id="dialog-field" hidden>
+        <span id="dialog-label"></span>
+        <input id="dialog-input" type="text" autocomplete="off" spellcheck="false">
+      </label>
+      <div class="dialog-actions">
+        <button id="dialog-cancel" type="button">Cancel</button>
+        <button id="dialog-confirm" class="primary" type="submit" value="confirm">OK</button>
+      </div>
+    </form>
+  </dialog>
+</body>
 </html>

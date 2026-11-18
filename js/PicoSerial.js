@@ -1,4 +1,5 @@
 const VENDOR_ID = 0x2E8A
+const MICROPYTHON_PRODUCT_ID = 0x0005
 
 class PicoSerial {
   constructor(onConnect, onDisconnect, logger) {
@@ -13,28 +14,30 @@ class PicoSerial {
   }
 
   async connect() {
-    if (!navigator.serial) {
-      alert("Your browser doesn't support connecting to the Pico (Web Serial API)")
-    } else {
-      if (!this.picoPort) this.picoPort = await navigator.serial.requestPort({ filters: [{ usbVendorId: VENDOR_ID }] })
-      if (this.picoPort) await this.openPico()
-    }
+    if (!this.picoPort) this.picoPort = await navigator.serial.requestPort({ filters: [{ usbVendorId: VENDOR_ID }] })
+    if (this.picoPort) await this.openPico()
   }
 
   async openPico() {
     if (this.picoPort) await this.picoPort.open({ baudRate: 115200 })
-    this.onConnect()
     this.reader = this.picoPort.readable.getReader()
     this.writer = this.picoPort.writable.getWriter()
     setTimeout(this.readFromPico.bind(this), 10)
     this.picoPort.addEventListener('disconnect', this.onDisconnect.bind(this))
+    this.onConnect()
   }
 
   onConnect() {
-    this.connectCallback()
+    const {usbVendorId, usbProductId} = this.picoPort.getInfo()
+    const isMicroPythonPico = usbVendorId === VENDOR_ID && usbProductId === MICROPYTHON_PRODUCT_ID
+    const name = isMicroPythonPico ? 'Raspberry Pi Pico'
+      : usbVendorId === VENDOR_ID ? 'Raspberry Pi USB serial device' : 'USB serial device'
+    const description = isMicroPythonPico ? name + ' (MicroPython)' : name
+    this.connectCallback(description, name)
   }
 
   onDisconnect() {
+    this.finishReplProbe?.(false)
     this.picoPort = null
     this.disconnectCallback()
   }
@@ -45,6 +48,7 @@ class PicoSerial {
       while (this.reading) {
         const { value } = await this.reader.read()
         const stringValue = this.textDecoder.decode(value)
+        this.observeReplProbe?.(stringValue)
         this.commandExecutor.streamer(stringValue)
         this.logger(stringValue)
       }
@@ -59,6 +63,29 @@ class PicoSerial {
     await this.writer.write(buffer)
   }
 
+  checkReplReady() {
+    return new Promise(resolve => {
+      let tail = ''
+      const timeout = setTimeout(() => finish(false), 500)
+      const finish = ready => {
+        if (this.finishReplProbe !== finish) return
+        clearTimeout(timeout)
+        this.observeReplProbe = null
+        this.finishReplProbe = null
+        resolve(ready)
+      }
+
+      this.finishReplProbe = finish
+      this.observeReplProbe = chunk => {
+        const output = tail + chunk
+        tail = output.slice(-5)
+        if (/(?:^|[\r\n])>>> $/.test(output)) finish(true)
+      }
+      // An idle MicroPython REPL prints a fresh prompt for a blank line.
+      this.writeIntoPico('\r').catch(() => finish(false))
+    })
+  }
+
   async disconnect() {
     this.reading = false
     await this.reader.cancel()
@@ -70,7 +97,7 @@ class PicoSerial {
   }
 
   listFiles(dir, callback) {
-    this.commandExecutor.execListDir(dir, callback)
+    return this.commandExecutor.execListDir(dir, callback)
   }
 
   readFile(file, callback) {
@@ -93,10 +120,11 @@ class PicoSerial {
   }
 
   stopDevice(callback) {
-    this.commandExecutor.execInterrupt(callback)
+    return this.commandExecutor.execInterrupt(callback)
   }
 
   rebootDevice(callback) {
+    this.finishReplProbe?.(false)
     this.commandExecutor.execReboot(callback)
   }
 
