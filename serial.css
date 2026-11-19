@@ -285,26 +285,26 @@ button.tab:disabled { opacity: .65; }
 }
 
 .file-toolbar { gap: 8px; padding: 0 12px 10px; }
-.file-toolbar select {
-  width: 50%;
+.file-toolbar button {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
   min-width: 0;
-  appearance: none;
-  padding-inline: 8px 24px;
-  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
-    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
-  background-position: right 12px center, right 8px center;
-  background-size: 4px 4px;
-  background-repeat: no-repeat;
+  padding-inline: 8px;
 }
-.file-toolbar select:hover { background-color: #edf2ef; }
-
-@media (forced-colors: active) {
-  .file-toolbar select {
-    appearance: auto;
-    padding-inline: 8px;
-    background-image: none;
-  }
+.file-toolbar button::after {
+  content: "";
+  width: 5px;
+  height: 5px;
+  flex: none;
+  margin: -3px 2px 0 0;
+  border: solid currentColor;
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
 }
+.file-toolbar button[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent); }
 .browser {
   flex: 1;
   min-height: 0;
@@ -361,38 +361,64 @@ button.file:disabled { color: var(--muted); }
   clip-path: polygon(0 0, 100% 100%, 0 100%);
 }
 .parent-symbol { color: var(--accent); background: var(--accent-soft); }
+.file.dirty::after {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-inline-start: auto;
+  border-radius: 50%;
+  background: #ad631b;
+}
 .file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.file-action { padding-inline: 0; width: 34px; color: var(--accent); }
-.file-action.delete { color: #a42c31; }
-button.file-action:hover, button.file-action:focus-visible {
-  background: var(--accent-soft);
-  color: var(--accent);
+button.file-action {
+  flex: none;
+  width: 36px;
+  padding-inline: 0;
+  color: var(--muted);
+  font-size: 1.125rem;
 }
-button.file-action.delete:hover, button.file-action.delete:focus-visible {
-  background: #fbe9e9;
-  color: #a42c31;
-}
+button.file-action[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent); }
 
 @media (hover: hover) and (pointer: fine) {
   .file-entry { position: relative; }
-  .file-entry:not(:hover):not(:focus-within) .file-action {
+  .file-entry:not(:hover):not(:focus-within) .file-action[aria-expanded="false"] {
     position: absolute;
     inset-inline-end: 2px;
     opacity: 0;
     pointer-events: none;
   }
 }
-
-@media (prefers-reduced-motion: no-preference) {
-  .file-action { transition: transform 120ms ease; }
-  .file-action:hover { transform: scale(1.08); }
-  .file-action:active { transform: scale(.96); }
+.file-actions {
+  position: fixed;
+  inset: auto;
+  width: 144px;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 6px 20px #17262126;
 }
+.file-actions button {
+  display: block;
+  width: 100%;
+  padding-inline: 8px;
+  border-color: transparent;
+  text-align: start;
+}
+.file-actions .delete { color: #a42c31; }
+.file-actions .delete:hover { background: #fbe9e9; }
 .browser-message { color: var(--muted); font-size: .875rem; padding: 5px 7px; }
 
 .editor { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .editor-header { border-bottom: 1px solid var(--line); }
 .editor-header button { flex: none; }
+.editor-heading { display: flex; align-items: center; gap: 8px; min-width: 0; }
+#editor-status { flex: none; color: #914523; font-size: .75rem; font-weight: 600; }
+#editor-status:empty { position: absolute; }
+#save:disabled { opacity: .65; }
 .editor-empty {
   display: grid;
   place-items: center;

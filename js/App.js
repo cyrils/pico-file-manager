@@ -68,46 +68,31 @@ class App {
         })
         this.__onClick("#tab-shell", this.showShell.bind(this))
         this.__onClick("#tab-files", this.showFilesTab.bind(this))
-        this.__onClick("#save", () => {
-            const fileContent = document.querySelector("#file-content")
-            this.pico.saveFile(fileContent.dataset.file, fileContent.value, this.onFileSaved.bind(this))
+        this.__onClick('#save', this.saveOpenFile.bind(this))
+        document.querySelector('#file-content').addEventListener('input', this.updateDirtyIndicator.bind(this))
+        const menu = document.querySelector('#file-actions')
+        menu.addEventListener('beforetoggle', event => {
+            if (event.newState === 'closed') {
+                this.fileActionsTrigger?.setAttribute('aria-expanded', 'false')
+                this.fileActionsTrigger = null
+            }
         })
-        const actionsMenu = document.querySelector("#actions-menu")
-        if (actionsMenu) {
-            actionsMenu.addEventListener("change", (e) => {
-                const action = e.target.value
-                if (action === "create-file") {
-                    this.createFile()
-                } else if (action === "create-folder") {
-                    this.createFolder()
-                } else if (action === "delete-all") {
-                    this.deleteAll()
-                }
-                e.target.value = ""
-            })
-        }
-        const uploadMenu = document.querySelector("#upload-menu")
-        if (uploadMenu) {
-            uploadMenu.addEventListener("change", (e) => {
-                const action = e.target.value
-                if (action === "upload-files") {
-                    const fileInput = document.querySelector("#file-upload")
-                    if (fileInput) fileInput.click()
-                } else if (action === "upload-folder") {
-                    const folderInput = document.querySelector("#folder-upload")
-                    if (folderInput) folderInput.click()
-                }
-                e.target.value = ""
-            })
-        }
-        const folderUploadInput = document.querySelector("#folder-upload")
-        if (folderUploadInput) {
-            folderUploadInput.addEventListener("change", this.uploadFiles.bind(this))
-        }
-        const fileUploadInput = document.querySelector("#file-upload")
-        if (fileUploadInput) {
-            fileUploadInput.addEventListener("change", this.uploadFiles.bind(this))
-        }
+        document.querySelector('#browser').addEventListener('scroll', () => menu.hidePopover())
+        window.addEventListener('resize', () => menu.hidePopover())
+
+        const fileUpload = document.querySelector('#file-upload')
+        const folderUpload = document.querySelector('#folder-upload')
+        fileUpload.addEventListener('change', this.uploadFiles.bind(this))
+        folderUpload.addEventListener('change', this.uploadFiles.bind(this))
+        this.__onClick('#upload-menu', event => this.showActionMenu(event.currentTarget, [
+            ['Upload files', () => fileUpload.click()],
+            ['Upload folder', () => folderUpload.click()]
+        ]))
+        this.__onClick('#actions-menu', event => this.showActionMenu(event.currentTarget, [
+            ['New file', () => this.createFile()],
+            ['New folder', () => this.createFolder()],
+            ['Delete all', () => this.deleteAll(), 'delete']
+        ]))
         this.updateDeviceStatus()
         window.addEventListener('beforeunload', async () => await this.pico.stop())
     }
@@ -134,6 +119,12 @@ class App {
         document.querySelector('#device-name').textContent = 'No device'
         this.replCheck = null
         this.directoryRequest = null
+        if (this.downloadRequest) {
+            this.downloadRequest = null
+            document.querySelector('#result').textContent = 'Download interrupted.'
+        }
+        this.openFile = null
+        this.updateDirtyIndicator()
         this.setDirectoryBusy(false)
         const dialog = document.querySelector('#app-dialog')
         if (dialog.open) dialog.close('cancel')
@@ -142,6 +133,33 @@ class App {
         this.__show('#search')
         this.showShell()
         this.log(`\n[Pico disconnected]\n\n`)
+    }
+
+    saveOpenFile() {
+        const file = this.openFile
+        if (!file || file.saving) return
+
+        const content = document.querySelector('#file-content').value
+        file.saving = true
+        this.updateDirtyIndicator()
+        this.pico.saveFile(file.path, content, message => {
+            file.saving = false
+            if (this.openFile !== file) return
+
+            if (message === 'OK') file.savedContent = content
+            this.updateDirtyIndicator()
+            this.onFileSaved(message)
+        })
+    }
+
+    updateDirtyIndicator() {
+        const file = this.openFile
+        const dirty = Boolean(file && document.querySelector('#file-content').value !== file.savedContent)
+        const status = document.querySelector('#editor-status')
+        const label = dirty ? 'Unsaved' : ''
+        if (status.textContent !== label) status.textContent = label
+        file?.node.classList.toggle('dirty', dirty)
+        document.querySelector('#save').disabled = Boolean(file?.saving)
     }
 
     onFileSaved(message) {
@@ -208,6 +226,7 @@ class App {
     }
 
     showShell() {
+        document.querySelector('#file-actions').hidePopover()
         this.__hide('#files')
         this.__show('#shell-panel')
         if (this.connected) {
@@ -270,7 +289,8 @@ class App {
     }
 
     loadDirectory(dir = document.querySelector('#browser').dataset.dir) {
-        if (this.directoryRequest) return
+        if (this.directoryRequest || this.downloadRequest) return
+        document.querySelector('#file-actions').hidePopover()
         const browser = document.querySelector('#browser')
         const hasListing = browser.firstElementChild !== null
         if (!hasListing) {
@@ -295,7 +315,8 @@ class App {
 
             const editor = document.querySelector('#file-content')
             editor.value = ''
-            delete editor.dataset.file
+            this.openFile = null
+            this.updateDirtyIndicator()
             const editorTitle = document.querySelector('#editor-title')
             editorTitle.textContent = 'Editor'
             editorTitle.removeAttribute('title')
@@ -374,21 +395,87 @@ class App {
             }
 
             if (!isParent) {
-                const rename = this.__createNode('button', 'file-action', '✎', 'Rename ' + name, this.renameFile.bind(this, name))
-                const remove = this.__createNode('button', 'file-action', '×', 'Delete ' + name, this.deleteFile.bind(this, name))
-                rename.setAttribute('aria-label', rename.title)
-                remove.setAttribute('aria-label', remove.title)
-                remove.classList.add('delete')
-                entry.append(rename, remove)
+                const actions = this.__createNode('button', 'file-action', '⋯', 'More actions for ' + name)
+                actions.setAttribute('aria-label', actions.title)
+                actions.setAttribute('aria-controls', 'file-actions')
+                actions.setAttribute('aria-expanded', 'false')
+                actions.onclick = () => this.showFileActions(actions, currentDir, name, isFolder)
+                entry.appendChild(actions)
             }
         })
         browser.replaceChildren(listing)
         browser.scrollTop = 0
     }
 
+    showFileActions(trigger, dir, name, isFolder) {
+        const actions = [
+            ['Rename', () => this.renameFile(name)],
+            ['Delete', () => this.deleteFile(name), 'delete']
+        ]
+        if (!isFolder) actions.unshift(['Download', () => this.downloadFile(dir + name, name)])
+        this.showActionMenu(trigger, actions, true)
+    }
+
+    showActionMenu(trigger, actions, alignEnd = false) {
+        const menu = document.querySelector('#file-actions')
+        const wasOpen = this.fileActionsTrigger === trigger
+        menu.hidePopover()
+        if (wasOpen) return
+
+        menu.setAttribute('aria-label', trigger.getAttribute('aria-label') || trigger.textContent.trim())
+        menu.replaceChildren(...actions.map(([label, action, className = 'menu-action']) =>
+            this.__createNode('button', className, label, null, () => {
+                menu.hidePopover()
+                trigger.focus()
+                action()
+            })
+        ))
+
+        this.fileActionsTrigger = trigger
+        trigger.setAttribute('aria-expanded', 'true')
+        menu.showPopover({source: trigger})
+        const anchor = trigger.getBoundingClientRect()
+        const bounds = menu.getBoundingClientRect()
+        const left = alignEnd ? anchor.right - bounds.width : anchor.left
+        menu.style.left = Math.max(8, Math.min(left, window.innerWidth - bounds.width - 8)) + 'px'
+        menu.style.top = (anchor.bottom + bounds.height + 12 <= window.innerHeight
+            ? anchor.bottom + 4
+            : Math.max(8, anchor.top - bounds.height - 4)) + 'px'
+        menu.firstElementChild.focus({preventScroll: true})
+    }
+
+    async downloadFile(path, name) {
+        if (!this.connected || this.directoryRequest || this.downloadRequest) return
+
+        const request = {}
+        this.downloadRequest = request
+        this.setDirectoryBusy(true)
+        const result = document.querySelector('#result')
+        result.textContent = 'Downloading ' + name + '…'
+        try {
+            const bytes = await this.pico.readFileBytes(path)
+            if (this.downloadRequest !== request) return
+
+            const url = URL.createObjectURL(new Blob([bytes], {type: 'application/octet-stream'}))
+            const link = document.createElement('a')
+            link.href = url
+            link.download = name
+            link.click()
+            setTimeout(() => URL.revokeObjectURL(url), 30000)
+            result.textContent = 'Download started.'
+        } catch {
+            if (this.downloadRequest === request) result.textContent = 'Could not download ' + name + '.'
+        } finally {
+            if (this.downloadRequest === request) {
+                this.downloadRequest = null
+                this.setDirectoryBusy(false)
+            }
+        }
+    }
+
     renderFileContent(file, fileNode, content) {
         document.querySelectorAll('.file.selected').forEach(node => {
-            node.classList.remove('selected')
+            node.classList.remove('selected', 'dirty')
             node.removeAttribute('aria-current')
         })
         fileNode.classList.add('selected')
@@ -397,8 +484,9 @@ class App {
         editorTitle.textContent = file.split('/').pop()
         editorTitle.title = file
         const editor = document.querySelector('#file-content')
-        editor.dataset.file = file
         editor.value = content === true ? '' : content
+        this.openFile = {path: file, node: fileNode, savedContent: editor.value, saving: false}
+        this.updateDirtyIndicator()
         editor.placeholder = '(empty)'
         this.__hide('#editor-empty')
         this.__show(['#file-content', '#save'])

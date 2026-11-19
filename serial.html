@@ -58,17 +58,8 @@
             <span id="current-path" class="path">/</span>
           </div>
           <div id="folder-toolbar" class="file-toolbar">
-            <select id="upload-menu" aria-label="Upload">
-              <option value="" disabled selected>Upload</option>
-              <option value="upload-files">Upload files</option>
-              <option value="upload-folder">Upload folder</option>
-            </select>
-            <select id="actions-menu" aria-label="Folder actions">
-              <option value="" disabled selected>Actions</option>
-              <option value="create-file">New file</option>
-              <option value="create-folder">New folder</option>
-              <option value="delete-all">Delete all</option>
-            </select>
+            <button id="upload-menu" type="button" aria-controls="file-actions" aria-expanded="false">Upload</button>
+            <button id="actions-menu" type="button" aria-label="Folder actions" aria-controls="file-actions" aria-expanded="false">Actions</button>
             <input type="file" id="folder-upload" webkitdirectory directory multiple class="hidden">
             <input type="file" id="file-upload" multiple class="hidden">
           </div>
@@ -76,7 +67,10 @@
         </aside>
         <section class="editor" aria-label="File editor">
           <div class="pane-header editor-header">
-            <h2 id="editor-title">Editor</h2>
+            <div class="editor-heading">
+              <h2 id="editor-title">Editor</h2>
+              <span id="editor-status" role="status"></span>
+            </div>
             <button id="save" class="primary hidden" type="button">Save file</button>
           </div>
           <div id="editor-empty" class="editor-empty">Select a text file to open it here.</div>
@@ -91,6 +85,8 @@
       </footer>
     </section>
   </main>
+  <div id="file-actions" class="file-actions" popover role="group" aria-label="File actions"></div>
+
   <dialog id="app-dialog" class="app-dialog" aria-labelledby="dialog-title">
     <form method="dialog">
       <h2 id="dialog-title"></h2>

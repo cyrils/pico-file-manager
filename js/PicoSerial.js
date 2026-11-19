@@ -115,6 +115,21 @@ class PicoSerial {
     })
   }
 
+  readFileBytes(file) {
+    return new Promise((resolve, reject) => {
+      const write = this.commandExecutor.execReadFile(file, response => {
+        try {
+          if (response === true) response = ''
+          if (typeof response !== 'string') throw new Error('The Pico did not return file data.')
+          resolve(base64ToBytes(response))
+        } catch (error) {
+          reject(error)
+        }
+      })
+      write.catch(reject)
+    })
+  }
+
   saveFile(file, content, callback) {
     this.commandExecutor.execWriteFile(file, content, callback)
   }
@@ -169,12 +184,15 @@ function arrayBufferToBase64(buffer) {
 }
 
 function base64ToText(base64) {
+    return new TextDecoder('utf-8').decode(base64ToBytes(base64));
+}
+
+function base64ToBytes(base64) {
     const binaryString = window.atob(base64.trim());
     const len = binaryString.length;
     const bytes = new Uint8Array(len);
     for (let i = 0; i < len; i++) {
         bytes[i] = binaryString.charCodeAt(i);
     }
-    const decoder = new TextDecoder('utf-8');
-    return decoder.decode(bytes);
+    return bytes;
 }

@@ -145,7 +145,7 @@ makedirs('${escapedTarget}')`;
     execReadFile(target, callback) {
         this.outputCallback = callback
         const code = __cmdReadFile(target)
-        this.pico.writeIntoPico(`${this.commands["Ctrl-A"]}${code}${this.commands["Ctrl-D"]}${this.commands["Ctrl-B"]}`)
+        return this.pico.writeIntoPico(`${this.commands["Ctrl-A"]}${code}${this.commands["Ctrl-D"]}${this.commands["Ctrl-B"]}`)
     }
 
     execCreateFile(target, callback) {
@@ -250,7 +250,11 @@ const __cmdReadFile = (target) => {
     const escapedTarget = target.replace(/\\/g, '/').replace(/'/g, "\\'");
     return `import ubinascii
 with open('${escapedTarget}', 'rb') as f:
-    print(ubinascii.b2a_base64(f.read()).decode('utf-8').strip())`
+    while True:
+        chunk = f.read(768)
+        if not chunk:
+            break
+        print(ubinascii.b2a_base64(chunk).decode('utf-8').strip())`
 }
 
 const __cmdCreateFile = (target) => {  
