@@ -197,6 +197,7 @@ button.tab:disabled { opacity: .65; }
 .protocol-divider { margin-inline: 4px; color: #708479; }
 
 .shell-panel {
+  position: relative;
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -205,6 +206,35 @@ button.tab:disabled { opacity: .65; }
   border-radius: 9px;
   background: #14221e;
   color: #e0eee6;
+}
+
+.chip-watermark {
+  position: absolute;
+  inset-inline-end: clamp(18px, 4vw, 52px);
+  bottom: clamp(18px, 4vw, 46px);
+  width: clamp(58px, 12vw, 126px);
+  aspect-ratio: 1;
+  color: #a8e6cd;
+  opacity: .09;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(90deg, currentColor 0 8%, transparent 8% 25%) 58% top / 62% 15%,
+    repeating-linear-gradient(90deg, currentColor 0 8%, transparent 8% 25%) 58% bottom / 62% 15%,
+    repeating-linear-gradient(0deg, currentColor 0 8%, transparent 8% 25%) left 58% / 15% 62%,
+    repeating-linear-gradient(0deg, currentColor 0 8%, transparent 8% 25%) right 58% / 15% 62%;
+  background-repeat: no-repeat;
+}
+.chip-watermark::before, .chip-watermark::after {
+  content: "";
+  position: absolute;
+  border: 2px solid currentColor;
+  border-radius: 12%;
+}
+.chip-watermark::before { inset: 14%; }
+.chip-watermark::after { inset: 33%; }
+
+@media (forced-colors: active), (max-height: 280px) {
+  .chip-watermark { display: none; }
 }
 
 .terminal-header {
@@ -237,7 +267,7 @@ button.tab:disabled { opacity: .65; }
   color: inherit;
   font: .875rem/1.65 var(--mono);
 }
-#shell { border-radius: 0 0 9px 9px; }
+#shell { position: relative; border-radius: 0 0 9px 9px; }
 #shell:focus-visible, .file-content:focus-visible { outline-offset: -3px; }
 
 .files {
